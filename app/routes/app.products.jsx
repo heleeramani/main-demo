@@ -4,6 +4,24 @@ export default function Products() {
   const [products, setProducts] = useState([]);
 
   // ================================
+  // PAGINATION
+  // ================================
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  // ================================
+  // BULK OPERATION
+  // ================================
+
+  const [bulkOperation, setBulkOperation] = useState(null);
+  const [bulkStarting, setBulkStarting] = useState(false);
+  const [bulkChecking, setBulkChecking] = useState(false);
+  const [bulkSyncing, setBulkSyncing] = useState(false);
+  const [bulkError, setBulkError] = useState("");
+  const [bulkMessage, setBulkMessage] = useState("");
+
+  // ================================
   // METAFIELDS
   // ================================
 
@@ -200,7 +218,32 @@ export default function Products() {
   }
 
   // ================================
+  // LOAD ALL PRODUCTS FROM MONGODB
+  // (no Shopify call, no 50-item cap — this is what the
+  // paginated list below actually renders)
+  // ================================
+
+  async function loadProductsFromDb() {
+    const response = await fetch("/api/products?source=db");
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to load products");
+    }
+
+    const productList = data.data || [];
+
+    setProducts(productList);
+    setCurrentPage(1);
+
+    return productList;
+  }
+
+  // ================================
   // SYNC PRODUCTS
+  // (live Shopify sync of the first 50, then re-read the full
+  // synced catalog from MongoDB so bulk-synced products show too)
   // ================================
 
   async function syncProducts(showMessage = true) {
@@ -216,12 +259,7 @@ export default function Products() {
         throw new Error(data.message || "Failed to sync products");
       }
 
-      const productList = data.data || [];
-
-      setProducts(productList);
-
-      // Load metafields after products are loaded
-      await loadProductMetafields(productList);
+      await loadProductsFromDb();
 
       if (showMessage) {
         setMessage(`${data.count || 0} products synced successfully`);
@@ -231,6 +269,89 @@ export default function Products() {
       setError(error.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  // ================================
+  // BULK PRODUCT QUERY
+  // ================================
+
+  async function handleBulkStart() {
+    try {
+      setBulkStarting(true);
+      setBulkError("");
+      setBulkMessage("");
+
+      const response = await fetch("/api/products?bulk=start");
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to start bulk product query");
+      }
+
+      setBulkOperation(data.data);
+      setBulkMessage("Bulk product query started");
+    } catch (error) {
+      console.error("Start bulk product query error:", error);
+      setBulkError(error.message);
+    } finally {
+      setBulkStarting(false);
+    }
+  }
+
+  async function handleBulkCheckStatus() {
+    try {
+      setBulkChecking(true);
+      setBulkError("");
+      setBulkMessage("");
+
+      const response = await fetch("/api/products?bulk=status");
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to check bulk operation status");
+      }
+
+      setBulkOperation(data.data);
+    } catch (error) {
+      console.error("Check bulk operation status error:", error);
+      setBulkError(error.message);
+    } finally {
+      setBulkChecking(false);
+    }
+  }
+
+  async function handleBulkSync() {
+    try {
+      setBulkSyncing(true);
+      setBulkError("");
+      setBulkMessage("");
+
+      const response = await fetch("/api/products?bulk=sync");
+
+      const data = await response.json();
+
+      if (data.data) {
+        setBulkOperation(data.data);
+      }
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to sync bulk product results");
+      }
+
+      setBulkMessage(
+        data.message ||
+        `${data.count || 0} products synced from bulk operation`,
+      );
+
+      await loadProductsFromDb();
+    } catch (error) {
+      console.error("Sync bulk product results error:", error);
+      setBulkError(error.message);
+    } finally {
+      setBulkSyncing(false);
     }
   }
 
@@ -263,6 +384,33 @@ export default function Products() {
     syncProducts(false);
     loadLocations();
   }, []);
+
+  // ================================
+  // PAGINATION
+  // ================================
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(products.length / pageSize),
+  );
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
+  const paginatedProducts = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+
+    return products.slice(start, start + pageSize);
+  }, [products, currentPage, pageSize]);
+
+  // Only fetch metafields for the products currently visible on
+  // this page, not the full (potentially bulk-synced) catalog.
+  useEffect(() => {
+    loadProductMetafields(paginatedProducts);
+  }, [paginatedProducts]);
 
   // ================================
   // LOAD INVENTORY FOR ONE PRODUCT
@@ -750,6 +898,61 @@ export default function Products() {
       </s-section>
 
       {/* ================================= */}
+      {/* BULK PRODUCT QUERY */}
+      {/* ================================= */}
+
+      <s-section heading="Bulk Product Query">
+        {bulkError && <s-banner tone="critical">{bulkError}</s-banner>}
+
+        {bulkMessage && <s-banner tone="success">{bulkMessage}</s-banner>}
+
+        <s-stack direction="block" gap="base">
+          <s-text>
+            Fetches every product from Shopify in one background
+            operation, instead of the 50-item cap on the regular sync
+            above. Start it, check its status until it completes, then
+            sync the results.
+          </s-text>
+
+          {bulkOperation && (
+            <s-text>
+              Status: <strong>{bulkOperation.status || "-"}</strong>
+              {typeof bulkOperation.objectCount !== "undefined"
+                ? ` · Objects: ${bulkOperation.objectCount}`
+                : ""}
+              {bulkOperation.errorCode
+                ? ` · Error: ${bulkOperation.errorCode}`
+                : ""}
+            </s-text>
+          )}
+
+          <s-stack direction="inline" gap="base">
+            <s-button
+              onClick={handleBulkStart}
+              {...(bulkStarting ? { loading: true } : {})}
+            >
+              Start Bulk Query
+            </s-button>
+
+            <s-button
+              onClick={handleBulkCheckStatus}
+              {...(bulkChecking ? { loading: true } : {})}
+            >
+              Check Status
+            </s-button>
+
+            <s-button
+              variant="primary"
+              onClick={handleBulkSync}
+              {...(bulkSyncing ? { loading: true } : {})}
+            >
+              Sync Results
+            </s-button>
+          </s-stack>
+        </s-stack>
+      </s-section>
+
+      {/* ================================= */}
       {/* CREATE PRODUCT */}
       {/* ================================= */}
 
@@ -816,7 +1019,28 @@ export default function Products() {
           <s-text>No products found.</s-text>
         ) : (
           <s-stack direction="block" gap="base">
-            {products.map((product) => {
+            <s-stack direction="inline" gap="base">
+              <s-text>
+                Page {currentPage} of {totalPages} — showing{" "}
+                {paginatedProducts.length} of {products.length} products
+              </s-text>
+
+              <s-select
+                label="Per page"
+                value={String(pageSize)}
+                onChange={(event) => {
+                  setPageSize(Number(event.currentTarget.value));
+                  setCurrentPage(1);
+                }}
+              >
+                <s-option value="10">10 per page</s-option>
+                <s-option value="20">20 per page</s-option>
+                <s-option value="50">50 per page</s-option>
+                <s-option value="100">100 per page</s-option>
+              </s-select>
+            </s-stack>
+
+            {paginatedProducts.map((product) => {
               const productId = product.shopifyId || product.id;
 
               const metafields = productMetafields[productId] || [];
@@ -919,11 +1143,11 @@ export default function Products() {
                       <s-button
                         onClick={() => loadProductInventory(product)}
                         {...(loadingInventory &&
-                        selectedInventoryProduct?.shopifyId ===
+                          selectedInventoryProduct?.shopifyId ===
                           product.shopifyId
                           ? {
-                              loading: true,
-                            }
+                            loading: true,
+                          }
                           : {})}
                       >
                         Manage Inventory
@@ -941,8 +1165,8 @@ export default function Products() {
                         onClick={() => handleDeleteProduct(product.shopifyId)}
                         {...(deleting
                           ? {
-                              loading: true,
-                            }
+                            loading: true,
+                          }
                           : {})}
                       >
                         Delete
@@ -952,6 +1176,28 @@ export default function Products() {
                 </s-box>
               );
             })}
+
+            <s-stack direction="inline" gap="base">
+              <s-button
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                {...(currentPage <= 1 ? { disabled: true } : {})}
+              >
+                Previous
+              </s-button>
+
+              <s-text>
+                Page {currentPage} of {totalPages}
+              </s-text>
+
+              <s-button
+                onClick={() =>
+                  setCurrentPage((page) => Math.min(totalPages, page + 1))
+                }
+                {...(currentPage >= totalPages ? { disabled: true } : {})}
+              >
+                Next
+              </s-button>
+            </s-stack>
           </s-stack>
         )}
       </s-section>
@@ -1045,8 +1291,8 @@ export default function Products() {
                                     }
                                     {...(adjustingKey === key
                                       ? {
-                                          loading: true,
-                                        }
+                                        loading: true,
+                                      }
                                       : {})}
                                   >
                                     Adjust Stock
@@ -1176,13 +1422,13 @@ export default function Products() {
                         onClick={handleProductTransfer}
                         {...(locations.length < 2
                           ? {
-                              disabled: true,
-                            }
+                            disabled: true,
+                          }
                           : {})}
                         {...(transferLoading
                           ? {
-                              loading: true,
-                            }
+                            loading: true,
+                          }
                           : {})}
                       >
                         Transfer Inventory
@@ -1277,8 +1523,8 @@ export default function Products() {
                     type="submit"
                     {...(updating
                       ? {
-                          loading: true,
-                        }
+                        loading: true,
+                      }
                       : {})}
                   >
                     Update Product

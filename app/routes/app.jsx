@@ -4,6 +4,8 @@ import {
   useRouteError,
 } from "react-router";
 
+import { env } from "node:process";
+
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -21,21 +23,27 @@ import { authenticate } from "../shopify.server";
 // /app/products
 // /app/collections
 // /app/inventory
-// etc.
+// /app/orders
+// /app/customers
+// /app/discounts
+// /app/gift-cards
+// /app/metafields
+// /app/metaobjects
+// /app/fulfillments
+// /app/draft-orders
+// /app/refunds
+// /app/returns
 //
 // AppProvider is placed here so all app.* routes receive
 // Shopify's App Provider context.
 // ============================================================
 
-export async function loader({
-  request,
-}) {
+export async function loader({ request }) {
   // Authenticate the Shopify admin request.
   await authenticate.admin(request);
 
   return {
-    apiKey:
-      process.env.SHOPIFY_API_KEY || "",
+    apiKey: env.SHOPIFY_API_KEY || "",
   };
 }
 
@@ -45,9 +53,7 @@ export async function loader({
 // ============================================================
 
 export default function App() {
-  const {
-    apiKey,
-  } = useLoaderData();
+  const { apiKey } = useLoaderData();
 
   return (
     <AppProvider
@@ -112,7 +118,12 @@ export default function App() {
           Refunds
         </s-link>
 
+        <s-link href="/app/returns">
+          Returns
+        </s-link>
+
       </s-app-nav>
+
 
       {/* ==================================================
           CHILD ROUTES
@@ -144,9 +155,7 @@ export function ErrorBoundary() {
 // HEADERS
 // ============================================================
 
-export const headers = (
-  headersArgs
-) => {
+export const headers = (headersArgs) => {
   return boundary.headers(
     headersArgs
   );
