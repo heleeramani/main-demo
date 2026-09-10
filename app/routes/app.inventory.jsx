@@ -417,9 +417,9 @@ export default function InventoryPage() {
             inventory.find(
                 (item) =>
                     item.inventoryItemId ===
-                        transferInventoryItemId &&
+                    transferInventoryItemId &&
                     item.locationId ===
-                        locationId
+                    locationId
             );
 
 
@@ -1212,7 +1212,7 @@ export default function InventoryPage() {
                             if (
                                 value &&
                                 value ===
-                                    transferDestinationLocationId
+                                transferDestinationLocationId
                             ) {
                                 setTransferDestinationLocationId(
                                     ""
@@ -1270,7 +1270,7 @@ export default function InventoryPage() {
                             if (
                                 value &&
                                 value ===
-                                    transferOriginLocationId
+                                transferOriginLocationId
                             ) {
                                 setTransferOriginLocationId(
                                     ""

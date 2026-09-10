@@ -100,6 +100,18 @@ export default function App() {
           Metaobjects
         </s-link>
 
+        <s-link href="/app/fulfillments">
+          Fulfillments
+        </s-link>
+
+        <s-link href="/app/draft-orders">
+          Draft Orders
+        </s-link>
+
+        <s-link href="/app/refunds">
+          Refunds
+        </s-link>
+
       </s-app-nav>
 
       {/* ==================================================
